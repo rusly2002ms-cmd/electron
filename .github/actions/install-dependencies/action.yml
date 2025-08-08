@@ -10,9 +10,6 @@ runs:
       which node
       node --version
       /home/runner/actions-runner/cached/externals/node20/bin/node --version
-      ls -la /home/runner/actions-runner/cached/externals
-      ls -la /home/runner/actions-runner/cached/externals/node20/bin/node
-      ls -la /home/runner/work/electron/electron
   - name: Get yarn cache directory path
     shell: bash
     id: yarn-cache-dir-path
