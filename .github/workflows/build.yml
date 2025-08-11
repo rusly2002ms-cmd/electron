@@ -6,7 +6,7 @@ on:
       build-image-sha:
         type: string
         description: 'SHA for electron/build image'
-        default: '161cde20bb1fbb9bd023e28dca3c715d2518bcb1'
+        default: '9e86d618f4136f0d486d7953367ad3d5d22ce205'
         required: true
       skip-macos:
         type: boolean
@@ -64,7 +64,7 @@ jobs:
       id: set-output
       run: |
         if [ -z "${{ inputs.build-image-sha }}" ]; then
-          echo "build-image-sha=161cde20bb1fbb9bd023e28dca3c715d2518bcb1" >> "$GITHUB_OUTPUT"
+          echo "build-image-sha=9e86d618f4136f0d486d7953367ad3d5d22ce205" >> "$GITHUB_OUTPUT"
         else
           echo "build-image-sha=${{ inputs.build-image-sha }}" >> "$GITHUB_OUTPUT"
         fi
