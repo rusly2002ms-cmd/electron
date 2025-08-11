@@ -64,7 +64,7 @@ jobs:
       id: set-output
       run: |
         if [ -z "${{ inputs.build-image-sha }}" ]; then
-          echo "build-image-sha=933c7d6ff6802706875270bec2e3c891cf8add3f" >> "$GITHUB_OUTPUT"
+          echo "build-image-sha=161cde20bb1fbb9bd023e28dca3c715d2518bcb1" >> "$GITHUB_OUTPUT"
         else
           echo "build-image-sha=${{ inputs.build-image-sha }}" >> "$GITHUB_OUTPUT"
         fi
