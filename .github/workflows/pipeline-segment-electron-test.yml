@@ -64,8 +64,8 @@ jobs:
       run: |
         which node
         node --version
-        cp $(which node) /mnt/runner-externals/node20/bin/
-        ls -la /mnt/runner-externals/node20/bin/node
+        cp $(which node) /home/runner/actions-runner/cached/externals
+        ls -la /home/runner/actions-runner/cached/externals/node20/bin/node
     - name: Setup Node.js/npm
       if: ${{ inputs.target-platform == 'win' }}
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
