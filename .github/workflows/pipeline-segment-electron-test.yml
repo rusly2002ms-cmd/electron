@@ -62,6 +62,8 @@ jobs:
     - name: Fix node20 on arm32 runners
       if: ${{ inputs.target-arch == 'arm' && inputs.target-platform == 'linux' }}
       run: |
+        ls -la /home/runner/
+        ls -la /mnt/runner-externals
         which node
         node --version
         cp $(which node) /mnt/runner-externals/node20/bin/
