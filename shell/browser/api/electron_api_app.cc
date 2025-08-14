@@ -1159,8 +1159,8 @@ void App::DisableDomainBlockingFor3DAPIs(gin_helper::ErrorThrower thrower) {
 
 bool App::IsAccessibilitySupportEnabled() {
   auto* ax_state = content::BrowserAccessibilityState::GetInstance();
-  ui::AXMode mode = ax_state->GetAccessibilityMode();
-  return mode == ui::kAXModeComplete;
+  auto mode = ax_state->GetAccessibilityMode();
+  return mode.has_mode(ui::kAXModeComplete.flags());
 }
 
 v8::Local<v8::Value> App::GetAccessibilitySupportFeatures() {
