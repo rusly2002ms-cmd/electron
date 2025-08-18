@@ -7,6 +7,11 @@ runs:
     if: ${{ runner.os == 'Linux' && (runner.arch == 'arm' || runner.arch == 'arm64') }}
     shell: bash
     run: |
+      pwd
+      ls -la /home/runner/
+      ls -la /home/runner/work/
+      ls -la /home/runner/work/electron
+      ls -la /home/runner/work/electron/electron
       which node
       node --version
       /home/runner/actions-runner/cached/externals/node20/bin/node --version
