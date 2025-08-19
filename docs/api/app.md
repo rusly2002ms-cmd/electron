@@ -1397,7 +1397,7 @@ details. Disabled by default.
 This API must be called after the `ready` event is emitted.
 
 > [!NOTE]
-> Rendering accessibility tree can significantly affect the performance of your app. It should not be enabled by default.
+> Rendering accessibility tree can significantly affect the performance of your app. It should not be enabled by default. Calling this method will enable the following accessibility support features: `nativeAPIs`, `webContents`, `inlineTextBoxes`, and `extendedProperties`.
 
 ### `app.getAccessibilitySupportFeatures()` _macOS_ _Windows_
 
