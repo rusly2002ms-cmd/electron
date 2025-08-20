@@ -544,23 +544,27 @@ class DictionaryObserver final : public SpellcheckCustomDictionary::Observer {
 #endif  // BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
 
 struct UserDataLink : base::SupportsUserData::Data {
-  explicit UserDataLink(base::WeakPtr<Session> session_in)
-      : session{std::move(session_in)} {}
+  explicit UserDataLink(
+      cppgc::WeakPersistent<gin::WeakCell<Session>> session_in)
+      : session{session_in} {}
 
-  base::WeakPtr<Session> session;
+  cppgc::WeakPersistent<gin::WeakCell<Session>> session;
 };
 
 const void* kElectronApiSessionKey = &kElectronApiSessionKey;
 
 }  // namespace
 
-gin::DeprecatedWrapperInfo Session::kWrapperInfo = {gin::kEmbedderNativeGin};
+gin::WrapperInfo Session::kWrapperInfo = {{gin::kEmbedderNativeGin},
+                                          gin::kElectronSession};
 
 Session::Session(v8::Isolate* isolate, ElectronBrowserContext* browser_context)
     : isolate_(isolate),
       network_emulation_token_(base::UnguessableToken::Create()),
       browser_context_{
           raw_ref<ElectronBrowserContext>::from_ptr(browser_context)} {
+  gin::PerIsolateData* data = gin::PerIsolateData::From(isolate);
+  data->AddDisposeObserver(this);
   // Observe DownloadManager to get download notifications.
   browser_context->GetDownloadManager()->AddObserver(this);
 
@@ -572,7 +576,10 @@ Session::Session(v8::Isolate* isolate, ElectronBrowserContext* browser_context)
 
   browser_context->SetUserData(
       kElectronApiSessionKey,
-      std::make_unique<UserDataLink>(weak_factory_.GetWeakPtr()));
+      std::make_unique<UserDataLink>(
+          cppgc::WeakPersistent<gin::WeakCell<Session>>(
+              weak_factory_.GetWeakCell(
+                  isolate->GetCppHeap()->GetAllocationHandle()))));
 
 #if BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
   if (auto* service =
@@ -583,14 +590,20 @@ Session::Session(v8::Isolate* isolate, ElectronBrowserContext* browser_context)
 }
 
 Session::~Session() {
-  browser_context()->GetDownloadManager()->RemoveObserver(this);
+  Dispose();
+}
+
+void Session::Dispose() {
+  if (keep_alive_) {
+    browser_context()->GetDownloadManager()->RemoveObserver(this);
 
 #if BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
-  if (auto* service =
-          SpellcheckServiceFactory::GetForContext(browser_context())) {
-    service->SetHunspellObserver(nullptr);
-  }
+    if (auto* service =
+            SpellcheckServiceFactory::GetForContext(browser_context())) {
+      service->SetHunspellObserver(nullptr);
+    }
 #endif
+  }
 }
 
 void Session::OnDownloadCreated(content::DownloadManager* manager,
@@ -1656,42 +1669,48 @@ bool Session::IsSpellCheckerEnabled() const {
 #endif  // BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
 
 // static
-Session* Session::FromBrowserContext(content::BrowserContext* context) {
+gin::WeakCell<Session>* Session::FromBrowserContext(
+    content::BrowserContext* context) {
   auto* data =
       static_cast<UserDataLink*>(context->GetUserData(kElectronApiSessionKey));
-  return data ? data->session.get() : nullptr;
+  if (data && data->session)
+    return data->session.Get();
+  return nullptr;
 }
 
 // static
-gin_helper::Handle<Session> Session::CreateFrom(
-    v8::Isolate* isolate,
-    ElectronBrowserContext* browser_context) {
-  Session* existing = FromBrowserContext(browser_context);
-  if (existing)
-    return gin_helper::CreateHandle(isolate, existing);
+Session* Session::CreateFrom(v8::Isolate* isolate,
+                             ElectronBrowserContext* browser_context) {
+  gin::WeakCell<Session>* existing = FromBrowserContext(browser_context);
+  if (existing && existing->Get())
+    return existing->Get();
 
-  auto handle =
-      gin_helper::CreateHandle(isolate, new Session(isolate, browser_context));
-
-  // The Sessions should never be garbage collected, since the common pattern is
-  // to use partition strings, instead of using the Session object directly.
-  handle->Pin(isolate);
+  auto* session = cppgc::MakeGarbageCollected<Session>(
+      isolate->GetCppHeap()->GetAllocationHandle(), isolate, browser_context);
 
   v8::TryCatch try_catch(isolate);
-  gin_helper::CallMethod(isolate, handle.get(), "_init");
+  gin_helper::CallMethod(isolate, session, "_init");
   if (try_catch.HasCaught()) {
     node::errors::TriggerUncaughtException(isolate, try_catch);
+    return nullptr;
   }
 
-  App::Get()->EmitWithoutEvent("session-created", handle);
+  {
+    v8::HandleScope handle_scope(isolate);
+    v8::Local<v8::Object> wrapper;
+    if (!session->GetWrapper(isolate).ToLocal(&wrapper)) {
+      return nullptr;
+    }
+    App::Get()->EmitWithoutEvent("session-created", wrapper);
+  }
 
-  return handle;
+  return session;
 }
 
 // static
-gin_helper::Handle<Session> Session::FromPartition(v8::Isolate* isolate,
-                                                   const std::string& partition,
-                                                   base::Value::Dict options) {
+Session* Session::FromPartition(v8::Isolate* isolate,
+                                const std::string& partition,
+                                base::Value::Dict options) {
   ElectronBrowserContext* browser_context;
   if (partition.empty()) {
     browser_context =
@@ -1708,34 +1727,30 @@ gin_helper::Handle<Session> Session::FromPartition(v8::Isolate* isolate,
 }
 
 // static
-std::optional<gin_helper::Handle<Session>> Session::FromPath(
-    v8::Isolate* isolate,
-    const base::FilePath& path,
-    base::Value::Dict options) {
+Session* Session::FromPath(gin::Arguments* args,
+                           const base::FilePath& path,
+                           base::Value::Dict options) {
   ElectronBrowserContext* browser_context;
 
   if (path.empty()) {
-    gin_helper::Promise<v8::Local<v8::Value>> promise(isolate);
-    promise.RejectWithErrorMessage("An empty path was specified");
-    return std::nullopt;
+    args->ThrowTypeError("An empty path was specified");
+    return nullptr;
   }
   if (!path.IsAbsolute()) {
-    gin_helper::Promise<v8::Local<v8::Value>> promise(isolate);
-    promise.RejectWithErrorMessage("An absolute path was not provided");
-    return std::nullopt;
+    args->ThrowTypeError("An absolute path was not provided");
+    return nullptr;
   }
 
   browser_context =
       ElectronBrowserContext::FromPath(std::move(path), std::move(options));
 
-  return CreateFrom(isolate, browser_context);
+  return CreateFrom(args->isolate(), browser_context);
 }
 
 // static
-gin_helper::Handle<Session> Session::New() {
+void Session::New() {
   gin_helper::ErrorThrower(JavascriptEnvironment::GetIsolate())
       .ThrowError("Session objects cannot be created with 'new'");
-  return {};
 }
 
 void Session::FillObjectTemplate(v8::Isolate* isolate,
@@ -1821,12 +1836,25 @@ void Session::FillObjectTemplate(v8::Isolate* isolate,
       .Build();
 }
 
-const char* Session::GetTypeName() {
-  return GetClassName();
+void Session::Trace(cppgc::Visitor* visitor) const {
+  gin::Wrappable<Session>::Trace(visitor);
+  visitor->Trace(weak_factory_);
 }
 
-void Session::WillBeDestroyed() {
-  ClearWeak();
+const gin::WrapperInfo* Session::wrapper_info() const {
+  return &kWrapperInfo;
+}
+
+const char* Session::GetHumanReadableName() const {
+  return "Electron / Session";
+}
+
+void Session::OnBeforeMicrotasksRunnerDispose(v8::Isolate* isolate) {
+  gin::PerIsolateData* data = gin::PerIsolateData::From(isolate);
+  data->RemoveDisposeObserver(this);
+  Dispose();
+  weak_factory_.Invalidate();
+  keep_alive_.Clear();
 }
 
 }  // namespace electron::api
@@ -1843,8 +1871,19 @@ v8::Local<v8::Value> FromPartition(const std::string& partition,
   }
   base::Value::Dict options;
   args->GetNext(&options);
-  return Session::FromPartition(args->isolate(), partition, std::move(options))
-      .ToV8();
+  Session* session =
+      Session::FromPartition(args->isolate(), partition, std::move(options));
+
+  if (session) {
+    v8::HandleScope handle_scope(args->isolate());
+    v8::Local<v8::Object> wrapper;
+    if (!session->GetWrapper(args->isolate()).ToLocal(&wrapper)) {
+      return v8::Null(args->isolate());
+    }
+    return wrapper;
+  } else {
+    return v8::Null(args->isolate());
+  }
 }
 
 v8::Local<v8::Value> FromPath(const base::FilePath& path,
@@ -1855,13 +1894,18 @@ v8::Local<v8::Value> FromPath(const base::FilePath& path,
   }
   base::Value::Dict options;
   args->GetNext(&options);
-  std::optional<gin_helper::Handle<Session>> session_handle =
-      Session::FromPath(args->isolate(), path, std::move(options));
+  Session* session = Session::FromPath(args, path, std::move(options));
 
-  if (session_handle)
-    return session_handle.value().ToV8();
-  else
+  if (session) {
+    v8::HandleScope handle_scope(args->isolate());
+    v8::Local<v8::Object> wrapper;
+    if (!session->GetWrapper(args->isolate()).ToLocal(&wrapper)) {
+      return v8::Null(args->isolate());
+    }
+    return wrapper;
+  } else {
     return v8::Null(args->isolate());
+  }
 }
 
 void Initialize(v8::Local<v8::Object> exports,
@@ -1870,7 +1914,8 @@ void Initialize(v8::Local<v8::Object> exports,
                 void* priv) {
   v8::Isolate* const isolate = electron::JavascriptEnvironment::GetIsolate();
   gin_helper::Dictionary dict(isolate, exports);
-  dict.Set("Session", Session::GetConstructor(isolate, context));
+  dict.Set("Session",
+           Session::GetConstructor(isolate, context, &Session::kWrapperInfo));
   dict.SetMethod("fromPartition", &FromPartition);
   dict.SetMethod("fromPath", &FromPath);
 }
