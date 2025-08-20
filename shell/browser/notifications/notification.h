@@ -23,6 +23,14 @@ class NotificationPresenter;
 struct NotificationAction {
   std::u16string type;
   std::u16string text;
+  // For actions of type "selection" on Windows, the list of selectable items.
+  std::vector<std::u16string> items;
+  NotificationAction();
+  ~NotificationAction();
+  NotificationAction(const NotificationAction&);
+  NotificationAction& operator=(const NotificationAction&);
+  NotificationAction(NotificationAction&&) noexcept;
+  NotificationAction& operator=(NotificationAction&&) noexcept;
 };
 
 struct NotificationOptions {
